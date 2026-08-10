@@ -1,29 +1,26 @@
-name: Build llama-server Windows CUDA
+name: Build llama-server (Official Reference)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 jobs:
   build:
     runs-on: windows-2022
-    steps:
-      # 强制锁定VS2022环境，避免CMake自动选中不兼容的VS2026
-      - name: Force VS2022 Environment
-        run: |
-          echo 'VisualStudioVersion=17.0' >> %GITHUB_ENV%
-          echo 'VS170COMNTOOLS=C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\' >> %GITHUB_ENV%
-        shell: cmd
 
-      # 拉取deepgrove-ai/llama.cpp源码
-      - uses: actions/checkout@v4
+    steps:
+      - name: Clone deepgrove-ai/llama.cpp
+        uses: actions/checkout@v6
         with:
           repository: deepgrove-ai/llama.cpp
           ref: main
           submodules: recursive
 
-      # 安装CUDA 12.4.1（官方支持VS2022的版本）
+      # 官方 CI 同款：安装 Ninja
+      - name: Install Ninja
+        run: choco install ninja
+        shell: cmd
+
+      # 官方 CI 同款：安装 CUDA 12.4
       - name: Install CUDA Toolkit 12.4.1
         uses: Jimver/cuda-toolkit@v0.2.36
         with:
@@ -31,20 +28,21 @@ jobs:
           method: "network"
           sub-packages: '["nvcc", "visual_studio_integration", "cudart", "cublas", "cublas_dev"]'
 
-      # 编译llama-server
+      # 核心构建步骤（完全参照官方 CI 的逻辑）
       - name: Build llama-server
+        shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" x64
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
           cmake -S . -B build -G "Ninja Multi-Config" ^
             -DLLAMA_BUILD_SERVER=ON ^
             -DGGML_NATIVE=OFF ^
             -DGGML_BACKEND_DL=ON ^
             -DGGML_CUDA=ON ^
-            -DGGML_CUDA_CUB_300T2=ON
-          cmake --build build --config Release -t llama-server
-        shell: cmd
+            -DGGML_CUDA_CUB_3DOT2=ON
+          set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
+          cmake --build build --config Release -j %NINJA_JOBS% -t llama-server
 
-      # 收集产物（包含CUDA运行库，避免下载后缺失DLL）
+      # 收集产物（包含必要的 DLL）
       - name: Collect artifacts
         run: |
           mkdir out
@@ -52,7 +50,6 @@ jobs:
           robocopy "%CUDA_PATH%\bin" out cudart64_*.dll cublas64_*.dll cublasLt64_*.dll
         shell: cmd
 
-      # 上传成品到Artifacts
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
