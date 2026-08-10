@@ -9,21 +9,18 @@ jobs:
   build:
     runs-on: windows-2022
     steps:
-      # 第一步：强制锁定VS2022环境，避免CMake自动选中不兼容的VS2026
       - name: Force VS2022 Environment
         run: |
           echo "VisualStudioVersion=17.0" >> $GITHUB_ENV
           echo "VS170COMNTOOLS=C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\" >> $GITHUB_ENV
         shell: bash
 
-      # 拉取deepgrove-ai的llama.cpp源码
       - uses: actions/checkout@v4
         with:
           repository: deepgrove-ai/llama.cpp
           ref: main
           submodules: recursive
 
-      # 安装CUDA 12.4.1（官方支持VS2022的版本）
       - name: Install CUDA Toolkit 12.4.1
         uses: Jimver/cuda-toolkit@v0.2.36
         with:
@@ -31,7 +28,6 @@ jobs:
           method: "network"
           sub-packages: '["nvcc", "visual_studio_integration", "cudart", "cublas", "cublas_dev"]'
 
-      # 编译llama-server（核心修正：最后一个参数后无^，避免语法错误）
       - name: Build llama-server
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" x64
@@ -40,11 +36,10 @@ jobs:
             -DGGML_NATIVE=OFF ^
             -DGGML_BACKEND_DL=ON ^
             -DGGML_CUDA=ON ^
-            -DGGML_CUDA_CUB_3DOT2=ON
+            -DGGML_CUDA_CUB_300T2=ON
           cmake --build build --config Release -t llama-server
         shell: cmd
 
-      # 收集产物（包含CUDA运行库，避免下载后缺失DLL）
       - name: Collect artifacts
         run: |
           mkdir out
@@ -52,7 +47,6 @@ jobs:
           robocopy "%CUDA_PATH%\bin" out cudart64_*.dll cublas64_*.dll cublasLt64_*.dll
         shell: cmd
 
-      # 上传成品到Artifacts
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
