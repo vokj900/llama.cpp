@@ -15,12 +15,10 @@ jobs:
           ref: main
           submodules: recursive
 
-      # 官方 CI 同款：安装 Ninja
       - name: Install Ninja
         run: choco install ninja
         shell: cmd
 
-      # 官方 CI 同款：安装 CUDA 12.4
       - name: Install CUDA Toolkit 12.4.1
         uses: Jimver/cuda-toolkit@v0.2.36
         with:
@@ -28,7 +26,6 @@ jobs:
           method: "network"
           sub-packages: '["nvcc", "visual_studio_integration", "cudart", "cublas", "cublas_dev"]'
 
-      # 核心构建步骤（完全参照官方 CI 的逻辑）
       - name: Build llama-server
         shell: cmd
         run: |
@@ -42,7 +39,6 @@ jobs:
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
           cmake --build build --config Release -j %NINJA_JOBS% -t llama-server
 
-      # 收集产物（包含必要的 DLL）
       - name: Collect artifacts
         run: |
           mkdir out
