@@ -1,0 +1,54 @@
+name: Build llama-server (FINAL-FIX)
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      # 第一步：强制锁定 VS2022 环境，防止 CMake 自动选中 VS2026
+      - name: Force VS2022 Environment
+        run: |
+          echo "VisualStudioVersion=17.0" >> $GITHUB_ENV
+          echo "VS170COMNTOOLS=C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\" >> $GITHUB_ENV
+        shell: bash
+
+      - uses: actions/checkout@v4
+        with:
+          repository: deepgrove-ai/llama.cpp
+          ref: main
+          submodules: recursive
+
+      - name: Install CUDA Toolkit 12.4.1
+        uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: "12.4.1"
+          method: "network"
+          sub-packages: '["nvcc", "visual_studio_integration", "cudart", "cublas", "cublas_dev"]'
+
+      # 第二步：使用 Ninja 构建，彻底绕过 VS 版本探测冲突
+      - name: Build llama-server
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          cmake -S . -B build -G "Ninja Multi-Config" ^
+            -DLLAMA_BUILD_SERVER=ON ^
+            -DGGML_NATIVE=OFF ^
+            -DGGML_BACKEND_DL=ON ^
+            -DGGML_CUDA=ON ^
+            -DGGML_CUDA_CUB_3DOT2=ON
+          cmake --build build --config Release -t llama-server
+        shell: cmd
+
+      - name: Collect artifacts
+        run: |
+          mkdir out
+          copy build\bin\Release\llama-server.exe out\
+          robocopy "%CUDA_PATH%\bin" out cudart64_*.dll cublas64_*.dll cublasLt64_*.dll
+        shell: cmd
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-server-windows-cuda
+          path: out\
+          retention-days: 7
