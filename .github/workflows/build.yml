@@ -1,21 +1,24 @@
-name: Build Maple Server for Blackwell (Final Fixed)
+name: Build Maple Server for Blackwell (Clean Fix)
 
+# 触发条件：手动触发或推送 main 分支
 on:
   workflow_dispatch:
+  push:
+    branches: [ "main" ]
 
 jobs:
   build:
     runs-on: windows-2022
 
     steps:
-    # 1. 检出上游源码
+    # 1. 检出 llama.cpp 源码
     - name: Checkout llama.cpp
       uses: actions/checkout@v4
       with:
         repository: ggml-org/llama.cpp
         path: llama.cpp
 
-    # 2. 拉取 Maple 官方分支（包含 Maple 架构实现）
+    # 2. 拉取 Maple 官方分支
     - name: Add Maple remote
       working-directory: ./llama.cpp
       run: |
@@ -24,7 +27,7 @@ jobs:
         git checkout -b maple-deepgrove maple/deepgrove-ai
       shell: cmd
 
-    # 3. 【关键修改】手动下载并静默安装 CUDA 13.3
+    # 3. 手动下载并静默安装 CUDA 13.3
     - name: Download and Install CUDA 13.3
       run: |
         curl -o cuda_installer.exe -L https://developer.download.nvidia.com/compute/cuda/13.3.0/local_installers/cuda_13.3.0_570.124.04_windows.exe
@@ -32,12 +35,12 @@ jobs:
         echo CUDA installed successfully.
       shell: cmd
 
-    # 4. 安装 Ninja
+    # 4. 安装 Ninja 编译工具
     - name: Install Ninja
       run: choco install ninja -y
       shell: cmd
 
-    # 5. 编译 (适配 Blackwell sm_120 / RTX 5060 Ti)
+    # 5. 编译适配 Blackwell (sm_120) 的 llama-server
     - name: Build llama-server for Blackwell sm_120
       id: cmake_build
       shell: cmd
@@ -69,7 +72,7 @@ jobs:
         dir out\
         exit /b 0
 
-    # 7. 上传产物
+    # 7. 上传编译好的程序
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
