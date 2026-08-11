@@ -1,4 +1,4 @@
-name: Build llama-server (Windows CUDA 13.3 - Blackwell RTX 50)
+name: Build llama-server (Maple - CUDA 13.3 - Blackwell sm_120)
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ jobs:
       actions: write
 
     steps:
-      - name: Clone deepgrove-ai/llama.cpp
+      - name: Clone deepgrove-ai/llama.cpp (Maple branch)
         uses: actions/checkout@v6
         with:
           repository: deepgrove-ai/llama.cpp
@@ -30,7 +30,7 @@ jobs:
       - name: ccache
         uses: ggml-org/ccache-action@v1.2.21
         with:
-          key: windows-2022-x64-cuda-13.3-blackwell
+          key: windows-2022-x64-cuda-13.3-maple-sm120
 
       - name: Install CUDA Toolkit 13.3
         uses: ./.github/actions/windows-setup-cuda
@@ -41,7 +41,7 @@ jobs:
         run: choco install ninja -y
         shell: cmd
 
-      - name: Build llama-server (Blackwell sm_120)
+      - name: Build llama-server for Blackwell sm_120
         id: cmake_build
         shell: cmd
         run: |
@@ -76,6 +76,6 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: llama-server-windows-cuda-13.3-blackwell
+          name: llama-server-maple-blackwell-cuda13.3
           path: out\
           retention-days: 7
