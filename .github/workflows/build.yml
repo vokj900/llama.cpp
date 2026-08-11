@@ -1,26 +1,23 @@
-name: Build llama-server (CUDA)
+name: Build llama-server (Windows CUDA - Optimized)
 
-"on":
-  workflow_dispatch: {}
+on:
+  workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.run_id }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  actions: write
-
 env:
-  CUDA_PATH: "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4"
-  CUDA_PATH_V12_4: "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4"
+  GH_TOKEN: ${{ github.token }}
+  LLAMA_ARG_LOG_COLORS: 1
+  LLAMA_ARG_LOG_PREFIX: 1
+  LLAMA_ARG_LOG_TIMESTAMPS: 1
 
 jobs:
   build:
     runs-on: windows-2022
-
-    strategy:
-      matrix:
-        cuda: ['12.4']
+    permissions:
+      actions: write
 
     steps:
       - name: Clone deepgrove-ai/llama.cpp
@@ -30,23 +27,26 @@ jobs:
           ref: main
           submodules: recursive
 
-      - name: Install Cuda Toolkit ${{ matrix.cuda }}
+      - name: ccache
+        uses: ggml-org/ccache-action@v1.2.21
+        with:
+          key: windows-2022-x64-cuda-12.4
+
+      - name: Install CUDA Toolkit 12.4
         uses: ./.github/actions/windows-setup-cuda
         with:
-          cuda_version: ${{ matrix.cuda }}
+          cuda_version: "12.4"
 
       - name: Install Ninja
         run: choco install ninja -y
-        shell: pwsh
+        shell: cmd
 
       - name: Build llama-server
         id: cmake_build
         shell: cmd
         run: |
-          set PATH=%CUDA_PATH%\bin;%PATH%
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
           cmake -S . -B build -G "Ninja Multi-Config" ^
-            -DCMAKE_BUILD_TYPE=Release ^
             -DLLAMA_BUILD_SERVER=ON ^
             -DLLAMA_BUILD_BORINGSSL=OFF ^
             -DGGML_NATIVE=OFF ^
@@ -60,15 +60,16 @@ jobs:
       - name: Collect artifacts
         shell: cmd
         run: |
-          if not exist out mkdir out
+          mkdir out
           copy build\bin\Release\llama-server.exe out\
           copy build\bin\Release\llama-server-impl.dll out\
-          copy build\bin\Release\llama.dll out\
+          copy build\bin\Release\llama-common.dll out\
           copy build\bin\Release\ggml-cuda.dll out\
-          copy "%CUDA_PATH%\bin\cudart64_*.dll" out\
-          copy "%CUDA_PATH%\bin\cublas64_*.dll" out\
-          copy "%CUDA_PATH%\bin\cublasLt64_*.dll" out\
-          echo === OUT directory contents ===
+          copy build\bin\Release\ggml-base.dll out\
+          copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin\cudart64_12.dll" out\
+          copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin\cublas64_12.dll" out\
+          copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin\cublasLt64_12.dll" out\
+          echo === Final artifacts list ===
           dir out\
           exit /b 0
 
