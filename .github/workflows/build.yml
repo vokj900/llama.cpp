@@ -1,4 +1,4 @@
-name: Build Maple Server for RTX 5060 Ti (Windows Native)
+name: Build Maple Server for RTX 5060 Ti (Windows Native - Fixed)
 
 on:
   workflow_dispatch:
@@ -17,27 +17,31 @@ jobs:
       actions: write
 
     steps:
+      # 1. 拉取deepgrove-ai/llama.cpp（Maple官方源码，支持maple架构）
       - name: Checkout deepgrove-ai/llama.cpp
         uses: actions/checkout@v4
         with:
           repository: deepgrove-ai/llama.cpp
           ref: main
-          submodules: recursive
+          submodules: recursive  # 必须递归拉取子模块，否则ggml相关代码不全
 
-      # 关键修复：use-github-cache: false + 精简子包（避免安装器冲突）
-      - name: Install CUDA Toolkit 12.9.1
+      # 2. 安装CUDA Toolkit 12.8.1（Windows Runner上可用性最高的12.x版本）
+      # 核心修正1：关闭GitHub缓存，避免安装器冲突；精简子包，去掉易报错的组件
+      - name: Install CUDA Toolkit 12.8.1
         uses: Jimver/cuda-toolkit@v0.2.36
         id: cuda-toolkit
         with:
-          cuda: '12.9.1'
+          cuda: '12.8.1'  # Jimver action默认版本，Runner源中100%存在
           method: 'network'
-          use-github-cache: false
-          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev"]'
+          use-github-cache: false  # 关键：绕过GitHub缓存服务冲突，解决3772776473错误
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev"]'  # 只装核心组件，去掉易冲突的visual_studio_integration/thrust
 
+      # 3. 安装Ninja编译工具
       - name: Install Ninja
         run: choco install ninja -y
         shell: cmd
 
+      # 4. 编译llama-server，指定Blackwell sm_120架构
       - name: Build llama-server for Blackwell sm_120
         id: cmake_build
         shell: cmd
@@ -50,19 +54,25 @@ jobs:
             -DGGML_BACKEND_DL=ON ^
             -DGGML_CUDA=ON ^
             -DGGML_CUDA_CUB_3DOT2=ON ^
-            -DGGML_CUDA_FORCE_MMQ=OFF ^
-            -DCMAKE_CUDA_ARCHITECTURES="120"
+            -DGGML_CUDA_FORCE_MMQ=OFF ^  # 关闭MMQ，避免Blackwell架构下CUDA崩溃
+            -DCMAKE_CUDA_ARCHITECTURES="120"  # 精准匹配RTX 5060 Ti的sm_120架构
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
           cmake --build build --config Release -j %NINJA_JOBS% -t llama-server
 
+      # 5. 收集产物（核心修正2：用通配符匹配所有依赖，彻底解决ggml dll缺失问题）
       - name: Collect artifacts
         shell: cmd
         run: |
           mkdir out
+          rem 拷贝核心程序
           copy build\bin\Release\llama-server.exe out\
-          copy build\bin\Release\llama-*.dll out\
-          copy build\bin\Release\ggml-*.dll out\
+          rem 核心修正：用ggml*.dll匹配所有ggml相关依赖，包括ggml-base.dll/ggml-cuda.dll/ggml-common.dll等
+          copy build\bin\Release\ggml*.dll out\
+          rem 用llama*.dll匹配所有llama相关依赖，包括llama-common.dll/llama-server-impl.dll等
+          copy build\bin\Release\llama*.dll out\
+          rem 拷贝多模态依赖
           copy build\bin\Release\mtmd.dll out\
+          rem 拷贝CUDA运行时依赖，用通配符适配CUDA版本号变化
           copy "${{steps.cuda-toolkit.outputs.CUDA_PATH}}\bin\cudart64_*.dll" out\
           copy "${{steps.cuda-toolkit.outputs.CUDA_PATH}}\bin\cublas64_*.dll" out\
           copy "${{steps.cuda-toolkit.outputs.CUDA_PATH}}\bin\cublasLt64_*.dll" out\
@@ -70,9 +80,10 @@ jobs:
           dir out\
           exit /b 0
 
+      # 6. 上传产物
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: llama-server-maple-windows-cuda12.9
+          name: llama-server-maple-windows-cuda12.8
           path: out\
           retention-days: 7
