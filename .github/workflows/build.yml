@@ -1,82 +1,82 @@
-name: Build Maple Server for Blackwell (Fixed)
+name: Build Maple Server for Blackwell (RTX 5060 Ti)
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  LLAMA_ARG_LOG_COLORS: 1
+  LLAMA_ARG_LOG_PREFIX: 1
+  LLAMA_ARG_LOG_TIMESTAMPS: 1
 
 jobs:
   build:
     runs-on: windows-2022
+    permissions:
+      actions: write
 
     steps:
-    # 1. 检出上游llama.cpp源码
-    - name: Checkout llama.cpp
-      uses: actions/checkout@v4
-      with:
-        repository: ggml-org/llama.cpp
-        path: llama.cpp
+      # 1. 拉取 deepgrove-ai/llama.cpp 的 maple 分支（唯一认识 maple 架构的源码）
+      - name: Clone deepgrove-ai/llama.cpp (maple branch)
+        uses: actions/checkout@v4
+        with:
+          repository: deepgrove-ai/llama.cpp
+          ref: main
+          submodules: recursive
 
-    # 2. 拉取DeepGrove官方Maple分支（包含Maple架构实现）
-    - name: Add Maple remote
-      working-directory: ./llama.cpp
-      run: |
-        git remote add maple https://github.com/deepgrove-ai/llama.cpp.git
-        git fetch maple
-        git checkout -b maple-deepgrove maple/deepgrove-ai
-      shell: cmd
+      # 2. 用社区维护的 setup-cuda 安装 CUDA 13.3（Blackwell sm_120 必需）
+      - name: Install CUDA Toolkit 13.3
+        uses: mjun0812/setup-cuda@v1
+        with:
+          version: '13.3'
 
-    # 3. 安装CUDA 13.3（Blackwell sm_120必需版本）
-    - name: Install CUDA Toolkit 13.3
-      uses: actions/setup-cuda@v3
-      with:
-        cuda-version: "13.3"
-        method: "network"
-        driver: false
+      # 3. 安装 Ninja
+      - name: Install Ninja
+        run: choco install ninja -y
+        shell: cmd
 
-    # 4. 安装Ninja编译工具
-    - name: Install Ninja
-      run: choco install ninja -y
-      shell: cmd
+      # 4. 编译 llama-server，指定 sm_120 架构
+      - name: Build llama-server for Blackwell sm_120
+        id: cmake_build
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          cmake -S . -B build -G "Ninja Multi-Config" ^
+            -DLLAMA_BUILD_SERVER=ON ^
+            -DLLAMA_BUILD_BORINGSSL=OFF ^
+            -DGGML_NATIVE=OFF ^
+            -DGGML_BACKEND_DL=ON ^
+            -DGGML_CUDA=ON ^
+            -DGGML_CUDA_CUB_3DOT2=ON ^
+            -DGGML_CUDA_FORCE_MMQ=OFF ^
+            -DCMAKE_CUDA_ARCHITECTURES="120"
+          set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
+          cmake --build build --config Release -j %NINJA_JOBS% -t llama-server
 
-    # 5. 编译适配RTX 5060 Ti（sm_120）的llama-server
-    - name: Build llama-server for Blackwell sm_120
-      id: cmake_build
-      shell: cmd
-      run: |
-        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-        cd llama.cpp
-        cmake -S . -B build -G "Ninja Multi-Config" ^
-          -DLLAMA_BUILD_SERVER=ON ^
-          -DLLAMA_CUDA=ON ^
-          -DGGML_CUDA_ARCHITECTURES=120 ^
-          -DGGML_CUDA_FORCE_MMQ=OFF
-        cmake --build build --config Release --parallel
-      env:
-        CUDA_PATH: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3
+      # 5. 收集全部运行依赖
+      - name: Collect artifacts
+        shell: cmd
+        run: |
+          mkdir out
+          copy build\bin\Release\llama-server.exe out\
+          copy build\bin\Release\llama-*.dll out\
+          copy build\bin\Release\ggml-*.dll out\
+          copy build\bin\Release\mtmd.dll out\
+          copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3\bin\cudart64_*.dll" out\
+          copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3\bin\cublas64_*.dll" out\
+          copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3\bin\cublasLt64_*.dll" out\
+          echo === Final artifacts list ===
+          dir out\
+          exit /b 0
 
-    # 6. 收集全部运行依赖
-    - name: Collect artifacts
-      shell: cmd
-      run: |
-        mkdir out
-        copy llama.cpp\build\bin\Release\llama-server.exe out\
-        copy llama.cpp\build\bin\Release\llama-*.dll out\
-        copy llama.cpp\build\bin\Release\ggml-*.dll out\
-        copy llama.cpp\build\bin\Release\mtmd.dll out\
-        copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3\bin\cudart64_*.dll" out\
-        copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3\bin\cublas64_*.dll" out\
-        copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3\bin\cublasLt64_*.dll" out\
-        echo === Final artifacts list ===
-        dir out\
-        exit /b 0
-
-    # 7. 上传编译产物
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: llama-server-maple-blackwell
-        path: out\
-        retention-days: 7
+      # 6. 上传产物
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-server-maple-blackwell-cuda13.3
+          path: out\
+          retention-days: 7
