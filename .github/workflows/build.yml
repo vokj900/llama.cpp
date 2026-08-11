@@ -1,7 +1,7 @@
 name: Build llama-server (CUDA)
 
-on:
-  workflow_dispatch:
+"on":
+  workflow_dispatch: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.run_id }}
@@ -9,6 +9,10 @@ concurrency:
 
 permissions:
   actions: write
+
+env:
+  CUDA_PATH: "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4"
+  CUDA_PATH_V12_4: "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4"
 
 jobs:
   build:
@@ -26,38 +30,46 @@ jobs:
           ref: main
           submodules: recursive
 
-      - name: Install Cuda Toolkit
+      - name: Install Cuda Toolkit ${{ matrix.cuda }}
         uses: ./.github/actions/windows-setup-cuda
         with:
           cuda_version: ${{ matrix.cuda }}
 
       - name: Install Ninja
-        run: choco install ninja
-        shell: cmd
+        run: choco install ninja -y
+        shell: pwsh
 
       - name: Build llama-server
         id: cmake_build
         shell: cmd
         run: |
+          set PATH=%CUDA_PATH%\bin;%PATH%
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
           cmake -S . -B build -G "Ninja Multi-Config" ^
+            -DCMAKE_BUILD_TYPE=Release ^
             -DLLAMA_BUILD_SERVER=ON ^
+            -DLLAMA_BUILD_BORINGSSL=OFF ^
             -DGGML_NATIVE=OFF ^
             -DGGML_BACKEND_DL=ON ^
             -DGGML_CUDA=ON ^
-            -DGGML_CUDA_CUB_3DOT2=ON
+            -DGGML_CUDA_CUB_3DOT2=ON ^
+            -DCMAKE_CUDA_ARCHITECTURES="86;89"
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
           cmake --build build --config Release -j %NINJA_JOBS% -t llama-server
 
       - name: Collect artifacts
         shell: cmd
         run: |
-          mkdir out
+          if not exist out mkdir out
           copy build\bin\Release\llama-server.exe out\
-          robocopy "%CUDA_PATH%\bin" out cudart64_*.dll cublas64_*.dll cublasLt64_*.dll
-          robocopy "%CUDA_PATH%\lib" out cudart64_*.dll cublas64_*.dll cublasLt64_*.dll
+          copy "%CUDA_PATH%\bin\cudart64_*.dll" out\
+          copy "%CUDA_PATH%\bin\cublas64_*.dll" out\
+          copy "%CUDA_PATH%\bin\cublasLt64_*.dll" out\
+          echo === OUT directory contents ===
+          dir out\
+          exit /b 0
 
-      - name: Upload
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: llama-server-windows-cuda-${{ matrix.cuda }}
