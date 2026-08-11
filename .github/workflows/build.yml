@@ -1,4 +1,4 @@
-name: Build Maple Server for RTX 5060 Ti (CUDA 12.8)
+name: Build Maple Server for Blackwell (No CUDA Install)
 
 on:
   workflow_dispatch:
@@ -18,27 +18,19 @@ jobs:
 
     steps:
       # 1. 直接拉取 deepgrove-ai/llama.cpp 的 main 分支（Maple 官方源码）
-      - name: Clone deepgrove-ai/llama.cpp
+      - name: Checkout deepgrove-ai/llama.cpp
         uses: actions/checkout@v4
         with:
           repository: deepgrove-ai/llama.cpp
           ref: main
           submodules: recursive
 
-      # 2. 安装 CUDA 12.8（Blackwell sm_120 最优版本）
-      - name: Download and Install CUDA 12.8
-        shell: cmd
-        run: |
-          curl -o cuda_installer.exe -L https://developer.download.nvidia.com/compute/cuda/12.8.0/local_installers/cuda_12.8.0_528.33_windows.exe
-          cuda_installer.exe -s nvcc_12.8 cuobjdump_12.8 cublas_12.8 cublas_dev_12.8 cufft_12.8 cufft_dev_12.8 curand_12.8 curand_dev_12.8 cusolver_12.8 cusolver_dev_12.8 cusparse_12.8 cusparse_dev_12.8 nvrtc_12.8 nvrtc_dev_12.8 nvml_dev_12.8
-          echo CUDA 12.8 installed successfully.
-
-      # 3. 安装 Ninja
+      # 2. 安装 Ninja
       - name: Install Ninja
         run: choco install ninja -y
         shell: cmd
 
-      # 4. 编译 llama-server，指定 sm_120 + 关闭 MMQ
+      # 3. 编译 llama-server（利用系统自带 CUDA，强制指定 Blackwell sm_120）
       - name: Build llama-server for Blackwell sm_120
         id: cmake_build
         shell: cmd
@@ -56,7 +48,7 @@ jobs:
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
           cmake --build build --config Release -j %NINJA_JOBS% -t llama-server
 
-      # 5. 收集全部运行依赖
+      # 4. 收集产物
       - name: Collect artifacts
         shell: cmd
         run: |
@@ -65,17 +57,14 @@ jobs:
           copy build\bin\Release\llama-*.dll out\
           copy build\bin\Release\ggml-*.dll out\
           copy build\bin\Release\mtmd.dll out\
-          copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8\bin\cudart64_*.dll" out\
-          copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8\bin\cublas64_*.dll" out\
-          copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8\bin\cublasLt64_*.dll" out\
           echo === Final artifacts list ===
           dir out\
           exit /b 0
 
-      # 6. 上传产物
+      # 5. 上传产物
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: llama-server-maple-rtx5060ti-cuda12.8
+          name: llama-server-maple-rtx5060ti
           path: out\
           retention-days: 7
