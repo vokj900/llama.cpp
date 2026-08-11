@@ -25,12 +25,12 @@ jobs:
           ref: main
           submodules: recursive
 
-      # 2. 用 Jimver/cuda-toolkit 安装 CUDA 12.4（社区验证可在 Windows Runner 上工作）
-      - name: Install CUDA Toolkit 12.4
+      # 2. 用 Jimver/cuda-toolkit 安装 CUDA 12.8.0（Blackwell sm_120 最优版本）
+      - name: Install CUDA Toolkit 12.8.0
         uses: Jimver/cuda-toolkit@v0.2.11
         id: cuda-toolkit
         with:
-          cuda: '12.4.0'
+          cuda: '12.8.0'
           method: 'network'
           sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust", "visual_studio_integration"]'
 
@@ -77,6 +77,6 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: llama-server-maple-windows-cuda12
+          name: llama-server-maple-windows-cuda12.8
           path: out\
           retention-days: 7
