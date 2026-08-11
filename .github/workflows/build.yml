@@ -1,4 +1,4 @@
-name: Build llama-server (Windows CUDA - Optimized)
+name: Build llama-server (Windows CUDA - Full Dependencies)
 
 on:
   workflow_dispatch:
@@ -61,11 +61,15 @@ jobs:
         shell: cmd
         run: |
           mkdir out
+          REM 拷贝核心程序
           copy build\bin\Release\llama-server.exe out\
-          copy build\bin\Release\llama-server-impl.dll out\
-          copy build\bin\Release\llama-common.dll out\
-          copy build\bin\Release\ggml-cuda.dll out\
-          copy build\bin\Release\ggml-base.dll out\
+          REM 批量拷贝所有llama系列依赖（自动包含llama-common/llama-server-impl等）
+          copy build\bin\Release\llama-*.dll out\
+          REM 批量拷贝所有ggml系列依赖（自动包含ggml-base/ggml-cuda等）
+          copy build\bin\Release\ggml-*.dll out\
+          REM 重点：拷贝之前遗漏的mtmd.dll
+          copy build\bin\Release\mtmd.dll out\
+          REM 拷贝CUDA运行时依赖
           copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin\cudart64_12.dll" out\
           copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin\cublas64_12.dll" out\
           copy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin\cublasLt64_12.dll" out\
