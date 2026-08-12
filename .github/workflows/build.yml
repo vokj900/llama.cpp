@@ -1,4 +1,4 @@
-name: Build Maple Server for RTX 5060 Ti (Windows Native - Fixed)
+name: Build Maple Server for RTX 5060 Ti (Windows Native - All Fixed)
 
 on:
   workflow_dispatch:
@@ -17,73 +17,124 @@ jobs:
       actions: write
 
     steps:
-      # 1. 拉取deepgrove-ai/llama.cpp（Maple官方源码，支持maple架构）
+      # ============================================================
+      # 1. 拉取 deepgrove-ai/llama.cpp（Maple 官方源码）
+      # ============================================================
       - name: Checkout deepgrove-ai/llama.cpp
         uses: actions/checkout@v4
         with:
           repository: deepgrove-ai/llama.cpp
           ref: main
-          submodules: recursive  # 必须递归拉取子模块，否则ggml相关代码不全
+          submodules: recursive
 
-      # 2. 安装CUDA Toolkit 12.8.1（Windows Runner上可用性最高的12.x版本）
-      # 核心修正1：关闭GitHub缓存，避免安装器冲突；精简子包，去掉易报错的组件
+      # ============================================================
+      # 2. 安装 OpenSSL（提供静态链接所需的 .lib 文件）
+      # ============================================================
+      - name: Install OpenSSL
+        run: choco install openssl -y
+        shell: cmd
+
+      # ============================================================
+      # 3. 安装 CUDA Toolkit 12.8.1
+      #    - use-github-cache: false  → 解决 3772776473 安装错误
+      #    - 精简 sub-packages       → 避免 VS 集成组件冲突
+      # ============================================================
       - name: Install CUDA Toolkit 12.8.1
         uses: Jimver/cuda-toolkit@v0.2.36
         id: cuda-toolkit
         with:
-          cuda: '12.8.1'  # Jimver action默认版本，Runner源中100%存在
+          cuda: '12.8.1'
           method: 'network'
-          use-github-cache: false  # 关键：绕过GitHub缓存服务冲突，解决3772776473错误
-          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev"]'  # 只装核心组件，去掉易冲突的visual_studio_integration/thrust
+          use-github-cache: false
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev"]'
 
-      # 3. 安装Ninja编译工具
+      # ============================================================
+      # 4. 安装 Ninja 编译工具
+      # ============================================================
       - name: Install Ninja
         run: choco install ninja -y
         shell: cmd
 
-      # 4. 编译llama-server，指定Blackwell sm_120架构
+      # ============================================================
+      # 5. 编译 llama-server（核心修复全在这里）
+      # ============================================================
       - name: Build llama-server for Blackwell sm_120
         id: cmake_build
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+
           cmake -S . -B build -G "Ninja Multi-Config" ^
             -DLLAMA_BUILD_SERVER=ON ^
+            ^
+            REM --- SSL 修复：关闭 BoringSSL，静态链接 OpenSSL ---
             -DLLAMA_BUILD_BORINGSSL=OFF ^
+            -DOPENSSL_USE_STATIC_LIBS=ON ^
+            -DOPENSSL_ROOT_DIR="C:\Program Files\OpenSSL-Win64" ^
+            ^
+            REM --- CURL 修复：静态链接，避免缺 libcurl.dll ---
+            -DCURL_USE_STATIC_LIBS=ON ^
+            -DBUILD_CURL_EXE=OFF ^
+            ^
+            REM --- CUDA / GGML 配置 ---
             -DGGML_NATIVE=OFF ^
             -DGGML_BACKEND_DL=ON ^
             -DGGML_CUDA=ON ^
             -DGGML_CUDA_CUB_3DOT2=ON ^
-            -DGGML_CUDA_FORCE_MMQ=OFF ^  # 关闭MMQ，避免Blackwell架构下CUDA崩溃
-            -DCMAKE_CUDA_ARCHITECTURES="120"  # 精准匹配RTX 5060 Ti的sm_120架构
+            -DGGML_CUDA_FORCE_MMQ=OFF ^
+            -DCMAKE_CUDA_ARCHITECTURES="120" ^
+            ^
+            REM --- 静态链接运行时，减少 dll 依赖 ---
+            -DCMAKE_C_FLAGS="/MT" ^
+            -DCMAKE_CXX_FLAGS="/MT"
+
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
           cmake --build build --config Release -j %NINJA_JOBS% -t llama-server
 
-      # 5. 收集产物（核心修正2：用通配符匹配所有依赖，彻底解决ggml dll缺失问题）
+      # ============================================================
+      # 6. 收集产物（通配符匹配，确保所有依赖都被拷贝）
+      # ============================================================
       - name: Collect artifacts
         shell: cmd
         run: |
           mkdir out
-          rem 拷贝核心程序
+
+          REM --- 核心程序 ---
           copy build\bin\Release\llama-server.exe out\
-          rem 核心修正：用ggml*.dll匹配所有ggml相关依赖，包括ggml-base.dll/ggml-cuda.dll/ggml-common.dll等
+
+          REM --- GGML 全家桶（通配符匹配，不漏任何一个）---
           copy build\bin\Release\ggml*.dll out\
-          rem 用llama*.dll匹配所有llama相关依赖，包括llama-common.dll/llama-server-impl.dll等
+
+          REM --- Llama 全家桶 ---
           copy build\bin\Release\llama*.dll out\
-          rem 拷贝多模态依赖
+
+          REM --- 多模态依赖 ---
           copy build\bin\Release\mtmd.dll out\
-          rem 拷贝CUDA运行时依赖，用通配符适配CUDA版本号变化
-          copy "${{steps.cuda-toolkit.outputs.CUDA_PATH}}\bin\cudart64_*.dll" out\
-          copy "${{steps.cuda-toolkit.outputs.CUDA_PATH}}\bin\cublas64_*.dll" out\
-          copy "${{steps.cuda-toolkit.outputs.CUDA_PATH}}\bin\cublasLt64_*.dll" out\
+
+          REM --- CUDA 运行时（通配符适配版本号变化）---
+          copy "%CUDA_PATH%\bin\cudart64_*.dll" out\
+          copy "%CUDA_PATH%\bin\cublas64_*.dll" out\
+          copy "%CUDA_PATH%\bin\cublasLt64_*.dll" out\
+
+          REM --- VC++ 运行库兜底（防止用户电脑缺运行库）---
+          copy "C:\Windows\System32\vcruntime140.dll" out\
+          copy "C:\Windows\System32\vcruntime140_1.dll" out\
+          copy "C:\Windows\System32\msvcp140.dll" out\
+          copy "C:\Windows\System32\msvcp140_1.dll" out\
+          copy "C:\Windows\System32\msvcp140_2.dll" out\
+          copy "C:\Windows\System32\concrt140.dll" out\
+
+          echo.
           echo === Final artifacts list ===
           dir out\
           exit /b 0
 
-      # 6. 上传产物
+      # ============================================================
+      # 7. 上传产物
+      # ============================================================
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: llama-server-maple-windows-cuda12.8
+          name: llama-server-maple-windows-cuda12.8-fixed
           path: out\
           retention-days: 7
